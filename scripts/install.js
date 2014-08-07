@@ -1,78 +1,41 @@
-var assert=require('assert');
-var http=require('http');
-var file=require('fs');
-var subprocess=require('child_process');
-var package=require('../package.json');
+// Warning: This install script is one giant hack.
+//
+// For backwards compatibility reasons, an Azure Mobile Service needs to be able to reference the msnodesql driver in its package.json
+// but it needs it to be called 'sqlserver' at the time of resolution e.g require('sqlserver');
+//
+// For reasons I won't go into, this module is not available under the name 'sqlserver', so at installation time the module
+// copies itself to the 'sqlserver' directory.
 
-function log( msg ) {
+var fs = require('fs'),
+	util = require('util'),
+	path = require('path'),
+	child_process = require('child_process'),
+	pkg = require('../package.json');
 
-	console.log( "install.js: " + msg );
+var moduleName = pkg.name,
+	targetModuleName = 'sqlserver',
+	parentDirectory = path.resolve('..');
+
+// Only do this step if this script is running due to installation as a module
+if(path.basename(parentDirectory) == 'node_modules') {
+	// Only perform the copy if there is no sqlserver\package.json, or it exists but it has the same module name as us
+	// i.e. it is a previous copy	
+	var targetModulePackageJsonPath = path.resolve(path.join('..', targetModuleName, 'package.json'));
+	if(fs.existsSync(targetModulePackageJsonPath) && require(targetModulePackageJsonPath).name != moduleName) {
+		console.error("Conflicting module found, unable to alias self as '%s'", targetModuleName);
+	} else {			
+		var command = util.format("robocopy %s %s /MIR", moduleName, targetModuleName);
+		child_process.exec(command, { cwd: parentDirectory }, function(error, stdout, stderr) {    
+	        // Robocopy returns 1 for a successful copy operation
+	        if(error.code === 1 && fs.existsSync(targetModulePackageJsonPath)) {
+	        	console.log("Module successfully aliased self as '%s'.", targetModuleName);
+	        } else {
+		        console.error(error);
+		        console.error(stderr);    
+		        console.log(stdout);                    	
+	        }       
+		});
+	}
 }
 
-console.log( "You are downloading Microsoft Driver for Node.js for SQL Server from\nMicrosoft, the license agreement to which is available at\nhttp://download.microsoft.com/download/6/E/2/6E2D7972-E54D-45AA-\n8AB6-41E616035147/EULA.rtf and in the project folder to which the\nsoftware is downloaded. Check the package for additional dependencies, which\nmay come with their own license agreement(s). Your use of the package and\ndependencies constitutes your acceptance of their license agreements. If\nyou do not accept the license agreement(s), then delete the relevant\ncomponents from your device." );
 
-var msiVer = process.version.split(".").slice(0,2).join(".");
-var msiArch = process.arch;
-var msiName = "msnodesql-" + package.version + "-" + msiVer + "-" + msiArch + ".msi";
-var msiUrl = {
-  host: 'download.microsoft.com',
-  port: 80,
-  path: '/download/6/E/2/6E2D7972-E54D-45AA-8AB6-41E616035147/' + msiName,
-};
-
-// retrieve the msi from Microsoft
-http.get( msiUrl, function( res ) {
-
-	if( res.statusCode != 200 ) {
-		log( "Unable to download " + msiName );
-		process.exit(1);
-	}
-
-	var msiLength = parseInt( res.headers['content-length'] );
-	assert( msiLength < 1000000 );	// arbitrary length to verify that we aren't too large
-
-	var msi = new Buffer( msiLength );
-	var msiSoFar = 0;
-
-	// download the msi in pieces
-	res.on('data', function( chunk ) {
-
-		if( msiSoFar + chunk.length > msi.length ) {
-			log( "Error downloading " + msiName );
-			process.exit(1);
-		}
-		chunk.copy( msi, msiSoFar );
-		msiSoFar += chunk.length;
-	});
-
-	res.on( 'end', function() {
-
-		if( msiSoFar != msi.length ) {
-			log( "Error downloading " + msiName );
-			process.exit(1);
-		}
-
-		// write the msi file
-		var msiFile = file.openSync( msiName, 'w');
-		var len = file.writeSync( msiFile, msi, 0, msi.length, 0 );
-		if( len != msi.length ) {
-
-			log( "Error writing the msi to a file" );
-			process.exit(1);
-		}
-		file.closeSync( msiFile );
-
-		// run the msi to extract the driver inside
-		var msiCmd = [ 'cmd', '/c', 'msiexec', '/i', msiName, '/quiet', 'IACCEPTMSNODESQLLICENSETERMS=Yes', 'NPMINSTALL=Yes' ].join(' ');
-		subprocess.exec( msiCmd, function( error, stdout, stderr ) {
-
-			if( error !== null ) {
-				log( error );
-				log( stdout );
-				process.exit( 1 );
-			}
-		});
-	});
-}).on( 'error', function ( err ) {
-	log( err );
-});
