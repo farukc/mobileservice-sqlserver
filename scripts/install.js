@@ -27,7 +27,7 @@ if(path.basename(parentDirectory) == 'node_modules') {
 		var command = util.format("robocopy %s %s /MIR", moduleName, targetModuleName);
 		child_process.exec(command, { cwd: parentDirectory }, function(error, stdout, stderr) {    
 	        // Robocopy returns 1 for a successful copy operation
-	        if(error.code === 1 && fs.existsSync(targetModulePackageJsonPath)) {
+	        if((error === null || error.code === 1) && fs.existsSync(targetModulePackageJsonPath)) {
 	        	console.log("Module successfully aliased self as '%s'.", targetModuleName);
 	        } else {
 		        console.error(error);
@@ -37,5 +37,3 @@ if(path.basename(parentDirectory) == 'node_modules') {
 		});
 	}
 }
-
-
